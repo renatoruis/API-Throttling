@@ -1,0 +1,16 @@
+[phases.setup]
+nixPkgs = ["go_1_21", "postgresql"]
+
+[phases.build]
+cmds = [
+    "cd server",
+    "go mod download",
+    "CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ../api-server main.go"
+]
+
+[phases.start]
+cmd = "./api-server"
+
+[start]
+cmd = "./api-server"
+

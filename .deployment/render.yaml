@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: api-throttling
+    env: go
+    buildCommand: cd server && go build -o /opt/render/project/api-server main.go
+    startCommand: ./api-server
+    envVars:
+      - key: PORT
+        value: 8888
+      - key: RATE_LIMIT_REQUESTS
+        value: 10
+      - key: RATE_LIMIT_PERIOD
+        value: 1
+      - key: THROTTLE_MIN_MS
+        value: 100
+      - key: THROTTLE_MAX_MS
+        value: 500
+      - key: DB_HOST
+        fromDatabase:
+          name: api-throttling-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: api-throttling-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: api-throttling-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: api-throttling-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: api-throttling-db
+          property: database
+    healthCheckPath: /health
+
+databases:
+  - name: api-throttling-db
+    databaseName: apidb
+    user: api_throttling_user
+
