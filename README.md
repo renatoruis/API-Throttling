@@ -29,22 +29,6 @@ Adiciona **delay/latência artificial** a cada requisição para simular servido
 
 ---
 
-## 🚀 Deploy em Produção
-
-Esta API está pronta para deploy em plataformas como **Dokploy**, **Railway**, **Render**, **Fly.io** e outras que suportam Nixpacks.
-
-**📖 [Guia Completo de Deploy →](DEPLOY.md)**
-
-Suporta:
-- ✅ Dokploy (self-hosted)
-- ✅ Railway
-- ✅ Render
-- ✅ Fly.io
-- ✅ Heroku
-- ✅ Qualquer plataforma Docker/Nixpacks
-
----
-
 ## 📋 Quick Start (2 minutos)
 
 ### 1️⃣ Subir a API
@@ -620,11 +604,7 @@ api-throttling/
 │   └── README.md            # Doc dos testes
 ├── docker-compose.yml        # Orquestração dos serviços
 ├── Makefile                  # Comandos facilitadores
-├── nixpacks.toml            # Config para Nixpacks (deploy)
-├── Procfile                 # Config para Heroku/Railway
-├── DEPLOY.md                # 🚀 Guia de deploy em produção
-├── .env.example             # Exemplo de variáveis (dev)
-├── .env.production          # Template para produção
+├── .env.example             # Exemplo de variáveis de ambiente
 ├── .gitignore              
 └── README.md                # Esta documentação
 ```
@@ -719,7 +699,6 @@ docker-compose logs api | grep -E "(Rate limiter|Throttling)"
 - **Go 1.21+**: Linguagem principal
 - **PostgreSQL 16**: Banco de dados
 - **Docker & Docker Compose**: Containerização
-- **Nixpacks**: Build system para deploy
 - **golang.org/x/time/rate**: Rate limiting
 - **lib/pq**: Driver PostgreSQL para Go
 
