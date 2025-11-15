@@ -223,6 +223,8 @@ docker-compose ps
 
 Todos os endpoints rodam em `http://localhost:8888`
 
+> 📋 **Documentação OpenAPI**: Veja o arquivo [`openapi.yaml`](openapi.yaml) para a especificação completa da API em formato OpenAPI 3.0
+
 ### Health Check
 ```bash
 GET /health
@@ -604,6 +606,7 @@ api-throttling/
 │   └── README.md            # Doc dos testes
 ├── docker-compose.yml        # Orquestração dos serviços
 ├── Makefile                  # Comandos facilitadores
+├── openapi.yaml             # 📋 Especificação OpenAPI 3.0
 ├── .env.example             # Exemplo de variáveis de ambiente
 ├── .gitignore              
 └── README.md                # Esta documentação

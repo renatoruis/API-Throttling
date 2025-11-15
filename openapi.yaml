@@ -1,0 +1,533 @@
+openapi: 3.0.3
+info:
+  title: API Throttling - Simulador de Rate Limiting e Throttling
+  description: |
+    API REST em Go para simular **throttling** (latência artificial) e **rate limiting** (limitação de requisições).
+    
+    ## Características
+    
+    - **Rate Limiting**: Controle de requisições por segundo (configurável)
+    - **Throttling**: Delay artificial configurável por requisição
+    - **Health Check**: Endpoint com verificação de banco e configurações
+    - **PostgreSQL**: Integração completa com banco de dados
+    
+    ## Configuração Atual
+    
+    - Porta: 8888
+    - Rate Limiting: 5 requisições/segundo
+    - Throttling: 1000-3000ms de delay
+    
+    ## Rate Limiting
+    
+    Quando o limite de requisições é excedido, a API retorna **HTTP 429 Too Many Requests**.
+    
+  version: 1.0.0
+  contact:
+    name: API Throttling
+    url: https://github.com/seu-usuario/api-trotling
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8888
+    description: Desenvolvimento local
+  - url: https://api-throttling.exemplo.com
+    description: Produção (exemplo)
+
+tags:
+  - name: Health
+    description: Verificação de saúde da API
+  - name: Test Endpoints
+    description: Endpoints simples para testes
+  - name: Database
+    description: Operações com banco de dados PostgreSQL
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health Check
+      description: |
+        Retorna o status da API incluindo:
+        - Status geral (ok ou degraded)
+        - Conexão com banco de dados
+        - Configurações ativas (rate limiting e throttling)
+        - Timestamp da verificação
+      operationId: getHealth
+      responses:
+        '200':
+          description: API está saudável
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: Sistema saudável
+                  value:
+                    status: ok
+                    time: "2025-11-15T12:30:45Z"
+                    database:
+                      status: connected
+                      host: postgres
+                      port: "5432"
+                      name: apidb
+                    configuration:
+                      rate_limiting:
+                        requests: 5
+                        period_seconds: 1
+                        rate_per_second: 5
+                      throttling:
+                        min_ms: 1000
+                        max_ms: 3000
+                        enabled: true
+                    server:
+                      port: "8888"
+        '503':
+          description: API está degradada (banco de dados desconectado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                degraded:
+                  summary: Banco desconectado
+                  value:
+                    status: degraded
+                    time: "2025-11-15T12:30:45Z"
+                    database:
+                      status: disconnected
+                      host: postgres
+                      port: "5432"
+                      name: apidb
+                      error: "connection refused"
+                    configuration:
+                      rate_limiting:
+                        requests: 5
+                        period_seconds: 1
+                        rate_per_second: 5
+                      throttling:
+                        min_ms: 1000
+                        max_ms: 3000
+                        enabled: true
+                    server:
+                      port: "8888"
+
+  /api/get:
+    get:
+      tags:
+        - Test Endpoints
+      summary: GET simples
+      description: |
+        Endpoint GET para testes básicos.
+        
+        **Sujeito a:**
+        - Rate limiting (rejeita com 429 se exceder)
+        - Throttling (adiciona delay configurável)
+      operationId: getSimple
+      responses:
+        '200':
+          description: Requisição processada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetResponse'
+              example:
+                message: "GET request received successfully"
+                time: "2025-11-15T12:30:45Z"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /api/post:
+    post:
+      tags:
+        - Test Endpoints
+      summary: POST simples
+      description: |
+        Endpoint POST para testes básicos. Aceita qualquer payload JSON válido e retorna o que foi recebido.
+        
+        **Sujeito a:**
+        - Rate limiting (rejeita com 429 se exceder)
+        - Throttling (adiciona delay configurável)
+      operationId: postSimple
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Qualquer objeto JSON válido
+            examples:
+              simple:
+                summary: Payload simples
+                value:
+                  test: "hello"
+                  value: 123
+              nested:
+                summary: Payload com objetos aninhados
+                value:
+                  name: "Test"
+                  value: 123
+                  data:
+                    nested: "object"
+                    array: [1, 2, 3]
+      responses:
+        '200':
+          description: Requisição processada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+              example:
+                message: "POST request received successfully"
+                received:
+                  test: "hello"
+                  value: 123
+                time: "2025-11-15T12:30:45Z"
+        '400':
+          description: JSON inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Invalid JSON payload"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /api/db/messages:
+    get:
+      tags:
+        - Database
+      summary: Listar mensagens
+      description: |
+        Retorna as últimas 100 mensagens do banco de dados, ordenadas por data de criação (mais recentes primeiro).
+        
+        **Sujeito a:**
+        - Rate limiting (rejeita com 429 se exceder)
+        - Throttling (adiciona delay configurável)
+      operationId: listMessages
+      responses:
+        '200':
+          description: Lista de mensagens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagesListResponse'
+              examples:
+                with_messages:
+                  summary: Com mensagens
+                  value:
+                    count: 2
+                    messages:
+                      - id: 2
+                        content: "Segunda mensagem"
+                        created_at: "2025-11-15T12:31:00Z"
+                      - id: 1
+                        content: "Primeira mensagem"
+                        created_at: "2025-11-15T12:30:00Z"
+                empty:
+                  summary: Sem mensagens
+                  value:
+                    count: 0
+                    messages: []
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          description: Erro no banco de dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Database query failed"
+    
+    post:
+      tags:
+        - Database
+      summary: Salvar mensagem
+      description: |
+        Salva uma nova mensagem no banco de dados.
+        
+        **Sujeito a:**
+        - Rate limiting (rejeita com 429 se exceder)
+        - Throttling (adiciona delay configurável)
+      operationId: createMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageInput'
+            example:
+              content: "Minha mensagem para salvar no banco"
+      responses:
+        '201':
+          description: Mensagem criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageCreateResponse'
+              example:
+                message: "Message saved successfully"
+                data:
+                  id: 1
+                  content: "Minha mensagem para salvar no banco"
+                  created_at: "2025-11-15T12:30:45Z"
+        '400':
+          description: Payload inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_json:
+                  summary: JSON inválido
+                  value:
+                    error: "Invalid JSON payload. Expected: {\"content\": \"your message\"}"
+                empty_content:
+                  summary: Campo content vazio
+                  value:
+                    error: "Content field is required"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          description: Erro ao salvar no banco
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Failed to insert message"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - time
+        - database
+        - configuration
+        - server
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: Status geral da API
+        time:
+          type: string
+          format: date-time
+          description: Timestamp da verificação (RFC3339)
+        database:
+          type: object
+          required:
+            - status
+            - host
+            - port
+            - name
+          properties:
+            status:
+              type: string
+              enum: [connected, disconnected]
+              description: Status da conexão com o banco
+            host:
+              type: string
+              description: Host do banco de dados
+            port:
+              type: string
+              description: Porta do banco de dados
+            name:
+              type: string
+              description: Nome do banco de dados
+            error:
+              type: string
+              description: Mensagem de erro (apenas quando status=disconnected)
+        configuration:
+          type: object
+          required:
+            - rate_limiting
+            - throttling
+          properties:
+            rate_limiting:
+              type: object
+              required:
+                - requests
+                - period_seconds
+                - rate_per_second
+              properties:
+                requests:
+                  type: integer
+                  description: Número máximo de requisições permitidas
+                  example: 5
+                period_seconds:
+                  type: integer
+                  description: Período em segundos
+                  example: 1
+                rate_per_second:
+                  type: number
+                  format: float
+                  description: Taxa calculada de requisições por segundo
+                  example: 5.0
+            throttling:
+              type: object
+              required:
+                - min_ms
+                - max_ms
+                - enabled
+              properties:
+                min_ms:
+                  type: integer
+                  description: Delay mínimo em milissegundos
+                  example: 1000
+                max_ms:
+                  type: integer
+                  description: Delay máximo em milissegundos
+                  example: 3000
+                enabled:
+                  type: boolean
+                  description: Se o throttling está habilitado
+                  example: true
+        server:
+          type: object
+          required:
+            - port
+          properties:
+            port:
+              type: string
+              description: Porta do servidor
+              example: "8888"
+
+    GetResponse:
+      type: object
+      required:
+        - message
+        - time
+      properties:
+        message:
+          type: string
+          example: "GET request received successfully"
+        time:
+          type: string
+          format: date-time
+          description: Timestamp da requisição (RFC3339)
+
+    PostResponse:
+      type: object
+      required:
+        - message
+        - received
+        - time
+      properties:
+        message:
+          type: string
+          example: "POST request received successfully"
+        received:
+          type: object
+          additionalProperties: true
+          description: Payload recebido no POST
+        time:
+          type: string
+          format: date-time
+          description: Timestamp da requisição (RFC3339)
+
+    Message:
+      type: object
+      required:
+        - id
+        - content
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: ID único da mensagem
+          example: 1
+        content:
+          type: string
+          description: Conteúdo da mensagem
+          example: "Minha mensagem"
+        created_at:
+          type: string
+          format: date-time
+          description: Data de criação (RFC3339)
+          example: "2025-11-15T12:30:45Z"
+
+    MessageInput:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          description: Conteúdo da mensagem
+          minLength: 1
+          example: "Minha mensagem para salvar no banco"
+
+    MessagesListResponse:
+      type: object
+      required:
+        - count
+        - messages
+      properties:
+        count:
+          type: integer
+          description: Número total de mensagens retornadas
+          example: 2
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+
+    MessageCreateResponse:
+      type: object
+      required:
+        - message
+        - data
+      properties:
+        message:
+          type: string
+          example: "Message saved successfully"
+        data:
+          $ref: '#/components/schemas/Message'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Mensagem de erro
+          example: "Error message"
+
+  responses:
+    RateLimitExceeded:
+      description: Rate limit excedido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Rate limit exceeded. Too many requests."
+      headers:
+        Retry-After:
+          description: Tempo sugerido para aguardar antes de tentar novamente (em segundos)
+          schema:
+            type: integer
+            example: 1
+
+  securitySchemes: {}
+
+x-throttling-info:
+  description: |
+    Esta API implementa throttling artificial para simular latência.
+    Cada requisição pode ter um delay adicional entre min_ms e max_ms.
+    
+x-rate-limiting-info:
+  description: |
+    Esta API implementa rate limiting usando token bucket algorithm.
+    Quando o limite é excedido, requisições retornam HTTP 429.
+
