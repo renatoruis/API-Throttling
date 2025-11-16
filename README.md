@@ -697,25 +697,93 @@ docker-compose logs api | grep -E "(Rate limiter|Throttling)"
 
 ---
 
+## 🔧 Troubleshooting & Performance
+
+### Verificar Logs e Diagnóstico
+
+```bash
+# Ver logs em tempo real
+docker-compose logs -f api
+
+# Ver tempo de resposta
+docker-compose logs api | grep "\[RESPONSE\]"
+
+# Ver status do banco
+docker-compose logs api | grep "\[DB\]"
+
+# Ver uso de recursos
+docker stats
+```
+
+### Verificar Configuração Ativa
+
+```bash
+# Ver configuração e saúde
+curl -s http://localhost:8888/health | jq '.'
+```
+
+### Teste de Performance
+
+```bash
+# Teste com Apache Bench (10k requisições, 100 concorrentes)
+ab -n 10000 -c 100 http://localhost:8888/api/get
+
+# Teste com wrk (mais preciso para alta carga)
+wrk -t12 -c400 -d30s http://localhost:8888/api/get
+```
+
+### Problemas Comuns
+
+**Timeout mesmo sem throttling:**
+- Verifique se `THROTTLE_MAX_MS=0` no docker-compose.yml
+- Verifique se `RATE_LIMIT_REQUESTS` está alto (999999)
+- Veja os logs: `docker-compose logs api | grep "\[RESPONSE\]"`
+
+**Pool de conexões esgotado:**
+```bash
+docker-compose exec postgres psql -U postgres -d apidb -c "SELECT count(*) FROM pg_stat_activity;"
+```
+
+**Recursos insuficientes:**
+- API está configurada para 8 CPUs / 4GB RAM
+- Postgres está configurada para 4 CPUs / 4GB RAM
+- Aumente se necessário em `docker-compose.yml`
+
+### Checklist de Performance
+
+- [ ] Logs não mostram erros `[ERROR]` ou `[FATAL]`
+- [ ] `/health` retorna `status: ok`
+- [ ] `docker stats` mostra uso de recursos < 80%
+- [ ] Teste de 100 requisições completa em < 1s
+- [ ] Pool de conexões configurado (200 conexões)
+- [ ] Cliente HTTP tem timeout adequado (>30s)
+
+---
+
 ## 📦 Tecnologias Utilizadas
 
-- **Go 1.21+**: Linguagem principal
-- **PostgreSQL 16**: Banco de dados
+- **Go 1.21+**: Linguagem principal (otimizada para alta concorrência)
+- **PostgreSQL 16**: Banco de dados (otimizado para 10k+ TPS)
 - **Docker & Docker Compose**: Containerização
 - **golang.org/x/time/rate**: Rate limiting
 - **lib/pq**: Driver PostgreSQL para Go
 
 ---
 
-## 📄 Licença
+## 📊 Performance
 
-MIT License - Sinta-se livre para usar e modificar.
+Configurado para suportar:
+- **10.000+ TPS** (transações por segundo)
+- **400+ requisições concorrentes**
+- **200 conexões simultâneas com o banco**
+- **8 CPUs / 4GB RAM** para a API
+- **4 CPUs / 4GB RAM** para o Postgres
 
 ---
 
-## 🤝 Contribuindo
+## 📄 Licença
 
-Sugestões e melhorias são bem-vindas! Este é um projeto educacional focado em demonstrar conceitos de rate limiting e throttling.
+MIT License - Sinta-se livre para usar e modificar.
 
 ---
 

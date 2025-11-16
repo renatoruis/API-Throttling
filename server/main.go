@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -70,28 +71,41 @@ func initDB(config Config) error {
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		config.DBHost, config.DBPort, config.DBUser, config.DBPassword, config.DBName)
 
+	log.Printf("[DB] Connecting to PostgreSQL at %s:%s...", config.DBHost, config.DBPort)
+
 	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
+		log.Printf("[DB] Error opening connection: %v", err)
 		return err
 	}
+
+	// Configurar pool de conexões para ALTA performance (10k+ TPS)
+	db.SetMaxOpenConns(200) // 200 conexões simultâneas
+	db.SetMaxIdleConns(200) // Manter todas idle ativas
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
+	log.Printf("[DB] Connection pool configured: MaxOpen=200, MaxIdle=200, MaxLifetime=5m, IdleTime=1m")
 
 	// Wait for database to be ready
 	maxRetries := 30
 	for i := 0; i < maxRetries; i++ {
 		err = db.Ping()
 		if err == nil {
+			log.Printf("[DB] Connection successful!")
 			break
 		}
-		log.Printf("Waiting for database... (%d/%d)", i+1, maxRetries)
+		log.Printf("[DB] Waiting for database... (%d/%d) - Error: %v", i+1, maxRetries, err)
 		time.Sleep(2 * time.Second)
 	}
 
 	if err != nil {
+		log.Printf("[DB] Failed to connect after %d retries: %v", maxRetries, err)
 		return err
 	}
 
 	// Create table if not exists
+	log.Printf("[DB] Creating tables if not exist...")
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS messages (
 			id SERIAL PRIMARY KEY,
@@ -100,7 +114,13 @@ func initDB(config Config) error {
 		)
 	`)
 
-	return err
+	if err != nil {
+		log.Printf("[DB] Error creating tables: %v", err)
+		return err
+	}
+
+	log.Printf("[DB] Tables ready")
+	return nil
 }
 
 func throttleMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -134,21 +154,43 @@ func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// OTIMIZAÇÃO: Logs desabilitados para alta performance
+		// Descomentar apenas para debug (impacta TPS significativamente)
+
+		// start := time.Now()
+		// log.Printf("[REQUEST] %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+
+		next(w, r)
+
+		// duration := time.Since(start)
+		// log.Printf("[RESPONSE] %s %s completed in %v", r.Method, r.URL.Path, duration)
+	}
+}
+
 func combinedMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return throttleMiddleware(rateLimitMiddleware(next))
+	return loggingMiddleware(throttleMiddleware(rateLimitMiddleware(next)))
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	log.Printf("[HEALTH] Health check request from %s", r.RemoteAddr)
+
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Verificar conexão com o banco
 	dbStatus := "connected"
 	dbError := ""
+	pingStart := time.Now()
 	if err := db.Ping(); err != nil {
 		dbStatus = "disconnected"
 		dbError = err.Error()
+		log.Printf("[HEALTH] Database ping failed in %v: %v", time.Since(pingStart), err)
+	} else {
+		log.Printf("[HEALTH] Database ping successful in %v", time.Since(pingStart))
 	}
-	
+
 	response := map[string]interface{}{
 		"status": "ok",
 		"time":   time.Now().Format(time.RFC3339),
@@ -160,33 +202,35 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		},
 		"configuration": map[string]interface{}{
 			"rate_limiting": map[string]interface{}{
-				"requests":      config.RateLimitRequests,
-				"period_seconds": config.RateLimitPeriod,
+				"requests":        config.RateLimitRequests,
+				"period_seconds":  config.RateLimitPeriod,
 				"rate_per_second": float64(config.RateLimitRequests) / float64(config.RateLimitPeriod),
 			},
 			"throttling": map[string]interface{}{
-				"min_ms":    config.ThrottleMinMs,
-				"max_ms":    config.ThrottleMaxMs,
-				"enabled":   config.ThrottleMaxMs > 0,
+				"min_ms":  config.ThrottleMinMs,
+				"max_ms":  config.ThrottleMaxMs,
+				"enabled": config.ThrottleMaxMs > 0,
 			},
 		},
 		"server": map[string]interface{}{
 			"port": config.Port,
 		},
 	}
-	
+
 	// Se houver erro no banco, adicionar detalhes
 	if dbError != "" {
 		response["database"].(map[string]interface{})["error"] = dbError
 		response["status"] = "degraded"
 	}
-	
+
 	// Status code baseado na saúde
 	if dbStatus == "disconnected" {
 		w.WriteHeader(http.StatusServiceUnavailable)
+		log.Printf("[HEALTH] Returning 503 (degraded) - DB disconnected")
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
+	log.Printf("[HEALTH] Health check completed in %v", time.Since(start))
 }
 
 func getHandler(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +243,7 @@ func getHandler(w http.ResponseWriter, r *http.Request) {
 
 func postHandler(w http.ResponseWriter, r *http.Request) {
 	var payload map[string]interface{}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -247,7 +291,7 @@ func dbGetHandler(w http.ResponseWriter, r *http.Request) {
 
 func dbPostHandler(w http.ResponseWriter, r *http.Request) {
 	var msg Message
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -294,29 +338,44 @@ func dbPostHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	log.Println("==========================================")
+	log.Println("  API Throttling Server Starting...")
+	log.Println("  🚀 HIGH PERFORMANCE MODE - 10k+ TPS")
+	log.Println("==========================================")
+
+	// Configurar GOMAXPROCS para usar todos os CPUs disponíveis
+	numCPU := runtime.NumCPU()
+	runtime.GOMAXPROCS(numCPU)
+	log.Printf("[CONFIG] GOMAXPROCS set to %d CPUs", numCPU)
+
 	config = loadConfig()
+
+	// Log da configuração
+	log.Printf("[CONFIG] Port: %s", config.Port)
+	log.Printf("[CONFIG] Database: %s:%s/%s", config.DBHost, config.DBPort, config.DBName)
 
 	// Initialize rate limiter
 	// Rate: requests per second = RateLimitRequests / RateLimitPeriod
 	ratePerSecond := float64(config.RateLimitRequests) / float64(config.RateLimitPeriod)
 	limiter = rate.NewLimiter(rate.Limit(ratePerSecond), config.RateLimitRequests)
 
-	log.Printf("Rate limiter configured: %d requests per %d second(s)", 
-		config.RateLimitRequests, config.RateLimitPeriod)
-	
+	log.Printf("[CONFIG] Rate limiter: %d requests per %d second(s) (%.2f req/s)",
+		config.RateLimitRequests, config.RateLimitPeriod, ratePerSecond)
+
 	if config.ThrottleMaxMs > 0 {
-		log.Printf("Throttling configured: %d-%d ms delay per request", 
+		log.Printf("[CONFIG] Throttling enabled: %d-%d ms delay per request",
 			config.ThrottleMinMs, config.ThrottleMaxMs)
 	} else {
-		log.Println("Throttling disabled (THROTTLE_MAX_MS = 0)")
+		log.Printf("[CONFIG] Throttling disabled (THROTTLE_MAX_MS = 0)")
 	}
 
 	// Initialize database
+	log.Println("[INIT] Initializing database connection...")
 	if err := initDB(config); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		log.Fatalf("[FATAL] Failed to initialize database: %v", err)
 	}
 	defer db.Close()
-	log.Println("Database connected successfully")
+	log.Println("[INIT] Database connected successfully!")
 
 	// Routes
 	http.HandleFunc("/health", healthHandler)
@@ -334,9 +393,29 @@ func main() {
 		})(w, r)
 	})
 
-	log.Printf("Server starting on port %s", config.Port)
-	if err := http.ListenAndServe(":"+config.Port, nil); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	log.Println("==========================================")
+	log.Printf("[SERVER] Starting on port %s", config.Port)
+	log.Println("[SERVER] Endpoints:")
+	log.Println("  - GET  /health")
+	log.Println("  - GET  /api/get")
+	log.Println("  - POST /api/post")
+	log.Println("  - GET  /api/db/messages")
+	log.Println("  - POST /api/db/messages")
+	log.Println("==========================================")
+	log.Printf("[SERVER] 🚀 High Performance Server ready at http://0.0.0.0:%s", config.Port)
+	log.Printf("[SERVER] 📊 Target: 10k+ TPS | %d CPUs | Pool: 200 connections", numCPU)
+	log.Println("==========================================")
+
+	// Configurar servidor HTTP para alta performance
+	server := &http.Server{
+		Addr:           ":" + config.Port,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
+	}
+
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatalf("[FATAL] Server failed to start: %v", err)
 	}
 }
-

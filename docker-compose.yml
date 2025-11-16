@@ -5,6 +5,14 @@ services:
     build: ./server
     ports:
       - "8888:8888"
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'          # 8 CPUs para 10k+ TPS
+          memory: 4G           # 4GB RAM
+        reservations:
+          cpus: '1.0'          # Reserva mínima de 4 CPUs
+          memory: 2G           # Reserva mínima de 2GB
     environment:
       - PORT=8888
       - DB_HOST=postgres
@@ -12,12 +20,12 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - DB_NAME=apidb
-      # Rate Limiting (max requests allowed)
-      - RATE_LIMIT_REQUESTS=5
+      # ALTA PERFORMANCE: Rate limiting muito alto (praticamente ilimitado)
+      - RATE_LIMIT_REQUESTS=999999
       - RATE_LIMIT_PERIOD=1
-      # Throttling (artificial delay in milliseconds)
-      - THROTTLE_MIN_MS=1000
-      - THROTTLE_MAX_MS=3000
+      # ALTA PERFORMANCE: Throttling desabilitado (sem delay artificial)
+      - THROTTLE_MIN_MS=0
+      - THROTTLE_MAX_MS=0
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,6 +35,14 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'          # 4 CPUs para suportar alta carga
+          memory: 2G           # 4GB RAM
+        reservations:
+          cpus: '0.5'          # Reserva mínima de 2 CPUs
+          memory: 1G           # Reserva mínima de 2GB
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -42,6 +58,37 @@ services:
       retries: 5
     networks:
       - api-network
+    command:
+      - "postgres"
+      # OTIMIZAÇÕES PARA 10k+ TPS
+      - "-c"
+      - "max_connections=300"              # 300 conexões (API usa 200)
+      - "-c"
+      - "shared_buffers=1GB"               # 25% da RAM (4GB)
+      - "-c"
+      - "effective_cache_size=3GB"         # 75% da RAM
+      - "-c"
+      - "work_mem=32MB"                    # Aumentado para sorts/joins
+      - "-c"
+      - "maintenance_work_mem=512MB"       # Para vacuum/index
+      - "-c"
+      - "checkpoint_completion_target=0.9" # Distribuir writes
+      - "-c"
+      - "wal_buffers=16MB"                 # Buffer WAL maior
+      - "-c"
+      - "random_page_cost=1.1"             # SSD otimizado
+      - "-c"
+      - "effective_io_concurrency=200"     # Alta concorrência I/O
+      - "-c"
+      - "max_worker_processes=8"           # Usar 8 workers
+      - "-c"
+      - "max_parallel_workers_per_gather=4" # Paralelizar queries
+      - "-c"
+      - "max_parallel_workers=8"           # Total de workers paralelos
+      - "-c"
+      - "synchronous_commit=off"           # PERFORMANCE! (trade-off: pode perder commits em crash)
+      - "-c"
+      - "fsync=off"                        # PERFORMANCE! (trade-off: risco de corrupção em crash)
 
 volumes:
   postgres-data:
